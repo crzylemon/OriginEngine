@@ -1,0 +1,43 @@
+# Binaries
+origin_engine
+origin_editor
+game/bin/client.so
+realGame/bin/client.so
+tools/map_compiler
+parse_map
+game_logic_demo
+render_demo
+test
+tools/gen_meshes
+
+# Shader SPIR-V
+engine/shaders/*.spv
+
+# Build artifacts
+*.o
+*.so
+*.a
+
+# Python
+pyvenv/
+__pycache__/
+*.pyc
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+*.swp
+*~
+
+# Lammer build
+lammer_maybe_dont_use_this/
+
+# Magic file
+*.mgc
+
+# Textures (Original)
+/textures/
+

@@ -1,0 +1,77 @@
+All numbers are little endian.
+
+MAP:
+    Header:
+        ASCII: "OEMp" (Origin Engine Map). Length: 4 bytes
+        Amount of Segments as a 32 bit int. Length: 4 bytes
+    Segment:
+        Segment Header:
+            Segment size (in bytes) as a 16 bit int. Length: 2 bytes
+            Segment type. Length: 1 byte
+                00 = Map Data
+                01 = Brush (world geometry)
+                02 = Entity
+                03 = I/O Connection
+                04 = Brush Entity Brush (brush owned by an entity)
+        Segment Data:
+            00 (Map Data):
+                Map title length as a 16 bit int. Length: 2 bytes
+                Map title in ASCII. Length: dynamic
+                Map description length as a 16 bit int. Length: 2 bytes
+                Map description in ASCII. Length: dynamic
+
+            01 (Brush):
+                Solid flag as an 8 bit int. Length: 1 byte
+                Amount of faces as a 16 bit int. Length: 2 bytes
+                Face:
+                    Texture name length as a 16 bit int. Length: 2 bytes
+                    Texture name in ASCII. Length: dynamic
+                    Texture scale U as a 16 bit int (fixed point * 100). Length: 2 bytes
+                    Texture scale V as a 16 bit int (fixed point * 100). Length: 2 bytes
+                    Texture offset U as a 16 bit signed int (fixed point * 100). Length: 2 bytes
+                    Texture offset V as a 16 bit signed int (fixed point * 100). Length: 2 bytes
+                    Amount of vertices as an 8 bit int. Length: 1 byte
+                    Vertex:
+                        X as a 16 bit signed int. Length: 2 bytes
+                        Y as a 16 bit signed int. Length: 2 bytes
+                        Z as a 16 bit signed int. Length: 2 bytes
+
+            02 (Entity):
+                Classname length as a 16 bit int. Length: 2 bytes
+                Classname in ASCII. Length: dynamic
+                Targetname length as a 16 bit int. Length: 2 bytes
+                Targetname in ASCII. Length: dynamic
+                Origin X as a 16 bit signed int. Length: 2 bytes
+                Origin Y as a 16 bit signed int. Length: 2 bytes
+                Origin Z as a 16 bit signed int. Length: 2 bytes
+                Flags as a 32 bit int. Length: 4 bytes
+                Connected brush entity segment ID as a 16 bit int. Length: 2 bytes
+                    0 = not a brush entity
+                    N = 1-based index of the segment in the file (the 04 segment)
+                Amount of key-value pairs as a 16 bit int. Length: 2 bytes
+                Key-Value:
+                    Key length as a 16 bit int. Length: 2 bytes
+                    Key in ASCII. Length: dynamic
+                    Value length as a 16 bit int. Length: 2 bytes
+                    Value in ASCII. Length: dynamic
+
+            03 (I/O Connection):
+                Source entity targetname length as a 16 bit int. Length: 2 bytes
+                Source entity targetname in ASCII. Length: dynamic
+                Output name length as a 16 bit int. Length: 2 bytes
+                Output name in ASCII. Length: dynamic
+                Target entity targetname length as a 16 bit int. Length: 2 bytes
+                Target entity targetname in ASCII. Length: dynamic
+                Input name length as a 16 bit int. Length: 2 bytes
+                Input name in ASCII. Length: dynamic
+                Parameter length as a 16 bit int. Length: 2 bytes
+                Parameter in ASCII. Length: dynamic
+                Delay as a 16 bit int (fixed point * 100, in seconds). Length: 2 bytes
+                Fire once flag as an 8 bit int. Length: 1 byte
+
+            04 (Brush Entity Brush):
+                Amount of brushes as a 16 bit int. Length: 2 bytes
+                Brush (same format as segment 01, repeated):
+                    Solid flag as an 8 bit int. Length: 1 byte
+                    Amount of faces as a 16 bit int. Length: 2 bytes
+                    Face: (same as segment 01 face format)

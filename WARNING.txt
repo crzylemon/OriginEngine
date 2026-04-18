@@ -1,0 +1,1 @@
+All files that don't have a file extension ARE EXECUTABLES. do not read them raw.

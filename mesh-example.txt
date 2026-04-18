@@ -1,0 +1,35 @@
+All numbers are little endian.
+
+MESH (.oemesh):
+    Header:
+        ASCII: "OEMs" (Origin Engine Mesh). Length: 4 bytes
+        Version as a 16 bit int. Length: 2 bytes
+
+    Texture:
+        Texture name length as a 16 bit int. Length: 2 bytes
+        Texture name in ASCII. Length: dynamic
+
+    Vertices:
+        Vertex count as a 32 bit int. Length: 4 bytes
+        Vertex (repeated):
+            Position X as a 32 bit float. Length: 4 bytes
+            Position Y as a 32 bit float. Length: 4 bytes
+            Position Z as a 32 bit float. Length: 4 bytes
+            UV U as a 32 bit float. Length: 4 bytes
+            UV V as a 32 bit float. Length: 4 bytes
+            Normal X as a 32 bit float. Length: 4 bytes
+            Normal Y as a 32 bit float. Length: 4 bytes
+            Normal Z as a 32 bit float. Length: 4 bytes
+            Total per vertex: 32 bytes
+
+    Indices:
+        Index count as a 32 bit int (number of indices, triangles * 3). Length: 4 bytes
+        Index (repeated):
+            Vertex index as a 32 bit int. Length: 4 bytes
+
+    Notes:
+        - Meshes are centered at origin (0,0,0)
+        - Bottom of mesh is typically at z=0
+        - Entities (prop_static, prop_dynamic) position meshes in the world
+        - One texture per mesh (referenced by name, loaded from game textures folder)
+        - Triangle winding: counter-clockwise when viewed from outside
