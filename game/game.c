@@ -233,11 +233,13 @@ static void my_game_shutdown(void) {
 }
 
 static void cmd_savemap(const char* args) {
-    const char* filename = args && args[0] ? args : "game/maps/saved.oem";
+    const char* filename = args && args[0] ? args : "saved.oem";
+    char save_path[256];
+    snprintf(save_path, sizeof(save_path), "%s/maps/%s", eng->game_folder, filename);
     MapInfo info;
     snprintf(info.title, sizeof(info.title), "Saved Map");
     snprintf(info.description, sizeof(info.description), "Map saved from Origin Engine");
-    eng->map_save(filename, &info);
+    eng->map_save(save_path, &info);
 }
 
 static void build_default_map(void) {
@@ -339,7 +341,7 @@ static void my_game_load_map(const char* map_name) {
 
     /* Try .oem file */
     char oem_path[256];
-    snprintf(oem_path, sizeof(oem_path), "game/maps/%s.oem", map_name);
+    snprintf(oem_path, sizeof(oem_path), "%s/maps/%s.oem", eng->game_folder, map_name);
     MapInfo info;
     if (eng->map_load(oem_path, &info)) {
         eng->log("loaded map file: %s", oem_path);

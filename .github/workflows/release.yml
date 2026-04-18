@@ -1,0 +1,164 @@
+name: Build & Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            gcc make \
+            libvulkan-dev libglfw3-dev \
+            libode-dev \
+            libgtk-3-dev \
+            glslang-tools
+
+      - name: Compile shaders
+        run: make shaders
+
+      - name: Build engine
+        run: make engine
+
+      - name: Build editor
+        run: make editor
+
+      - name: Build demo game
+        run: make game
+
+      - name: Package Linux release
+        run: |
+          mkdir -p release-linux/engine/shaders
+          cp origin_engine release-linux/
+          cp origin_editor release-linux/
+          cp engine/shaders/*.spv release-linux/engine/shaders/
+          cp -r game release-linux/
+          cp README.md release-linux/
+          cp map-example.txt release-linux/
+          cp mesh-example.txt release-linux/ 2>/dev/null || true
+          tar czf origin-engine-linux-x64.tar.gz -C release-linux .
+
+      - name: Upload Linux artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: origin-engine-linux-x64
+          path: origin-engine-linux-x64.tar.gz
+
+  build-windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-make
+            mingw-w64-x86_64-vulkan-loader
+            mingw-w64-x86_64-vulkan-headers
+            mingw-w64-x86_64-glfw
+            mingw-w64-x86_64-ode
+            mingw-w64-x86_64-gtk3
+            mingw-w64-x86_64-glslang
+            make
+
+      - name: Compile shaders
+        run: make shaders
+
+      - name: Build engine
+        run: |
+          gcc main.c \
+            engine/render.c engine/camera.c engine/brush.c engine/player.c \
+            engine/console.c engine/texture.c engine/entity.c engine/trigger.c \
+            engine/game_dll.c engine/brush_entity.c engine/map_format.c \
+            engine/entity_io.c engine/font.c engine/dev_console.c \
+            engine/sound.c engine/mesh.c engine/prop.c engine/physics.c \
+            -o origin_engine.exe \
+            -Wall -Wextra -lm -lvulkan-1 -lglfw3 -lode -lgdi32 -lwinmm \
+            -DGLFW_DLL
+
+      - name: Build editor
+        run: |
+          gcc editor.c \
+            engine/brush.c engine/entity.c engine/console.c engine/trigger.c \
+            engine/brush_entity.c engine/map_format.c engine/entity_io.c \
+            engine/texture.c \
+            -o origin_editor.exe \
+            -Wall -Wextra -lm \
+            $(pkg-config --cflags --libs gtk+-3.0)
+
+      - name: Build demo game
+        run: |
+          gcc -shared game/game.c -o game/bin/client.dll -Wall -Wextra -lm
+
+      - name: Collect DLLs
+        run: |
+          mkdir -p release-win/engine/shaders
+          cp origin_engine.exe release-win/
+          cp origin_editor.exe release-win/
+          cp engine/shaders/*.spv release-win/engine/shaders/
+          cp -r game release-win/
+          cp README.md release-win/
+          # Copy required MinGW DLLs
+          MINGW=/mingw64/bin
+          for dll in libgcc_s_seh-1.dll libstdc++-6.dll libwinpthread-1.dll \
+                     libvulkan-1.dll glfw3.dll libode.dll \
+                     libgtk-3-0.dll libgdk-3-0.dll libglib-2.0-0.dll \
+                     libgobject-2.0-0.dll libgio-2.0-0.dll \
+                     libcairo-2.dll libpango-1.0-0.dll libpangocairo-1.0-0.dll \
+                     libgdk_pixbuf-2.0-0.dll libatk-1.0-0.dll \
+                     libepoxy-0.dll libfribidi-0.dll libharfbuzz-0.dll \
+                     libpangowin32-1.0-0.dll libpangoft2-1.0-0.dll \
+                     libfontconfig-1.dll libfreetype-6.dll libpixman-1-0.dll \
+                     libpng16-16.dll zlib1.dll libbz2-1.dll libexpat-1.dll \
+                     libpcre2-8-0.dll libintl-8.dll libiconv-2.dll; do
+            test -f "$MINGW/$dll" && cp "$MINGW/$dll" release-win/ || true
+          done
+
+      - name: Create zip
+        run: |
+          cd release-win
+          7z a ../origin-engine-windows-x64.zip .
+
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: origin-engine-windows-x64
+          path: origin-engine-windows-x64.zip
+
+  release:
+    needs: [build-linux, build-windows]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download Linux artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: origin-engine-linux-x64
+
+      - name: Download Windows artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: origin-engine-windows-x64
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            origin-engine-linux-x64.tar.gz
+            origin-engine-windows-x64.zip
+          generate_release_notes: true

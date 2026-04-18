@@ -42,6 +42,8 @@ engine: main.c $(RENDER_SRC)
 # The game shared library
 game: game/game.c
 	$(CC) -shared -fPIC $^ -o game/bin/client.so $(CFLAGS)
+game2: realGame/game.c
+	$(CC) -shared -fPIC $^ -o realGame/bin/client.so $(CFLAGS)
 
 # The map editor (GTK3 + Cairo, Hammer-style 4-view)
 editor: editor.c $(EDITOR_SRC)

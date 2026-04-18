@@ -85,6 +85,9 @@ typedef struct {
 
     /* Logging */
     void    (*log)(const char* fmt, ...);
+
+    /* Game folder path (e.g. "game" or "realGame") */
+    const char* game_folder;
 } EngineAPI;
 
 /* == Game API: functions the game .so must export ============== */

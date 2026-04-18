@@ -89,9 +89,12 @@ static void build_engine_api(void) {
 
     /* Logging */
     g_engine_api.log                 = engine_log;
+
+    /* Game folder (set later by engine before game_init) */
+    g_engine_api.game_folder         = NULL;
 }
 
-int game_dll_load(const char* path) {
+int game_dll_load(const char* path, const char* game_folder) {
     printf("[engine] loading game: %s\n", path);
 
     g_dll_handle = dlopen(path, RTLD_NOW);
@@ -119,6 +122,7 @@ int game_dll_load(const char* path) {
 
     /* Build engine API and pass it to the game */
     build_engine_api();
+    g_engine_api.game_folder = game_folder;
 
     printf("[engine] loaded: %s v%s\n",
            g_game_api->game_name ? g_game_api->game_name() : "unknown",

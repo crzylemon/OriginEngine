@@ -420,7 +420,7 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    if (!game_dll_load(so_path)) {
+    if (!game_dll_load(so_path, game_folder)) {
         char msg[600];
         snprintf(msg, sizeof(msg),
                  "Failed to load game client:\n%s\n\n"

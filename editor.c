@@ -50,6 +50,9 @@
 #define GRID_SIZES_COUNT 5
 static const int GRID_SIZES[GRID_SIZES_COUNT] = {8, 16, 32, 64, 128};
 
+static float fminf2(float a, float b) { return a < b ? a : b; }
+static float fmaxf2(float a, float b) { return a > b ? a : b; }
+
 /* View types */
 #define VIEW_TOP   0  /* XY plane, looking down Z */
 #define VIEW_FRONT 1  /* XZ plane, looking down Y */
@@ -62,10 +65,17 @@ static const int GRID_SIZES[GRID_SIZES_COUNT] = {8, 16, 32, 64, 128};
 #define TOOL_ENTITY 2
 #define TOOL_CLIP   3
 
+/* Gizmo modes */
+#define GIZMO_MOVE   0
+#define GIZMO_RESIZE 1
+#define GIZMO_ROTATE 2
+#define GIZMO_COUNT  3
+
 /* ── Editor State ────────────────────────────────────────────── */
 static int    g_grid_idx = 2;  /* index into GRID_SIZES, default 32 */
 static int    g_grid = 32;
 static int    g_tool = TOOL_SELECT;
+static int    g_gizmo = GIZMO_MOVE;
 static int    g_selected_brush = -1;
 static int    g_selected_entity = -1;
 static int    g_selected_face = -1;
@@ -100,6 +110,10 @@ typedef struct {
     /* For brush creation */
     double create_x0, create_y0;  /* world coords of first corner */
     double create_x1, create_y1;  /* world coords of current corner */
+    /* For resize: which edge/corner is being dragged */
+    int    resize_edge;  /* bitmask: 1=min_a, 2=max_a, 4=min_b, 8=max_b */
+    double resize_orig_min_a, resize_orig_max_a;
+    double resize_orig_min_b, resize_orig_max_b;
     /* 3D camera */
     float  cam_yaw, cam_pitch, cam_dist;
     float  cam_target[3];
@@ -286,6 +300,37 @@ static void move_brush(int idx, Vec3 delta) {
         for (int v = 0; v < b->faces[f].vertex_count; v++)
             b->faces[f].vertices[v] = vec3_add(b->faces[f].vertices[v], delta);
     brush_recompute_bounds(b);
+}
+
+/* Resize an AABB brush to new mins/maxs, rebuilding face vertices */
+static void resize_brush(int idx, Vec3 new_mins, Vec3 new_maxs) {
+    int bc; Brush** bs = brush_get_all(&bc);
+    if (idx < 0 || idx >= bc || !bs[idx]) return;
+    Brush* b = bs[idx];
+    if (b->face_count != 6) return; /* only works for AABB brushes */
+
+    float x0 = fminf2(new_mins.x, new_maxs.x);
+    float y0 = fminf2(new_mins.y, new_maxs.y);
+    float z0 = fminf2(new_mins.z, new_maxs.z);
+    float x1 = fmaxf2(new_mins.x, new_maxs.x);
+    float y1 = fmaxf2(new_mins.y, new_maxs.y);
+    float z1 = fmaxf2(new_mins.z, new_maxs.z);
+
+    Vec3 fv[6][4] = {
+        {{x0,y1,z0},{x1,y1,z0},{x1,y0,z0},{x0,y0,z0}},
+        {{x0,y0,z1},{x1,y0,z1},{x1,y1,z1},{x0,y1,z1}},
+        {{x0,y0,z0},{x1,y0,z0},{x1,y0,z1},{x0,y0,z1}},
+        {{x1,y1,z0},{x0,y1,z0},{x0,y1,z1},{x1,y1,z1}},
+        {{x0,y1,z0},{x0,y0,z0},{x0,y0,z1},{x0,y1,z1}},
+        {{x1,y0,z0},{x1,y1,z0},{x1,y1,z1},{x1,y0,z1}},
+    };
+    for (int f = 0; f < 6; f++) {
+        b->faces[f].vertex_count = 4;
+        for (int vi = 0; vi < 4; vi++)
+            b->faces[f].vertices[vi] = fv[f][vi];
+    }
+    b->mins = VEC3(x0, y0, z0);
+    b->maxs = VEC3(x1, y1, z1);
 }
 
 static void delete_selected(void) {
@@ -532,7 +577,7 @@ static void draw_creation_preview(cairo_t* cr, ViewState* v) {
     cairo_show_text(cr, sz);
 }
 
-/* Selection gizmo: move handles on selected brush */
+/* Selection gizmo: visual handles on selected brush */
 static void draw_selection_gizmo(cairo_t* cr, ViewState* v) {
     if (g_selected_brush < 0) return;
     int bc; Brush** bs = brush_get_all(&bc);
@@ -542,35 +587,79 @@ static void draw_selection_gizmo(cairo_t* cr, ViewState* v) {
 
     int ax_a, ax_b;
     view_axes(v->type, &ax_a, &ax_b);
-    double ca = (brush_axis(b->mins, ax_a) + brush_axis(b->maxs, ax_a)) * 0.5;
-    double cb = (brush_axis(b->mins, ax_b) + brush_axis(b->maxs, ax_b)) * 0.5;
+    double mn_a = brush_axis(b->mins, ax_a), mx_a = brush_axis(b->maxs, ax_a);
+    double mn_b = brush_axis(b->mins, ax_b), mx_b = brush_axis(b->maxs, ax_b);
+    double ca = (mn_a + mx_a) * 0.5, cb = (mn_b + mx_b) * 0.5;
     double wx, wy;
     world_to_widget(v, ca, cb, &wx, &wy);
 
-    /* Move gizmo: arrows */
-    double len = 20;
-    /* Horizontal arrow (axis A) */
-    cairo_set_source_rgba(cr, 1, 0, 0, 0.9);
-    cairo_set_line_width(cr, 2);
-    cairo_move_to(cr, wx, wy);
-    cairo_line_to(cr, wx + len, wy);
-    cairo_stroke(cr);
-    cairo_move_to(cr, wx + len, wy);
-    cairo_line_to(cr, wx + len - 5, wy - 4);
-    cairo_line_to(cr, wx + len - 5, wy + 4);
-    cairo_close_path(cr);
-    cairo_fill(cr);
+    if (g_gizmo == GIZMO_MOVE) {
+        /* Move gizmo: arrows from center */
+        double len = 25;
+        /* Horizontal arrow (axis A — red) */
+        cairo_set_source_rgba(cr, 1, 0.2, 0.2, 0.9);
+        cairo_set_line_width(cr, 2.5);
+        cairo_move_to(cr, wx, wy);
+        cairo_line_to(cr, wx + len, wy);
+        cairo_stroke(cr);
+        cairo_move_to(cr, wx + len, wy);
+        cairo_line_to(cr, wx + len - 6, wy - 4);
+        cairo_line_to(cr, wx + len - 6, wy + 4);
+        cairo_close_path(cr); cairo_fill(cr);
 
-    /* Vertical arrow (axis B) */
-    cairo_set_source_rgba(cr, 0, 1, 0, 0.9);
-    cairo_move_to(cr, wx, wy);
-    cairo_line_to(cr, wx, wy - len);
-    cairo_stroke(cr);
-    cairo_move_to(cr, wx, wy - len);
-    cairo_line_to(cr, wx - 4, wy - len + 5);
-    cairo_line_to(cr, wx + 4, wy - len + 5);
-    cairo_close_path(cr);
-    cairo_fill(cr);
+        /* Vertical arrow (axis B — green) */
+        cairo_set_source_rgba(cr, 0.2, 1, 0.2, 0.9);
+        cairo_move_to(cr, wx, wy);
+        cairo_line_to(cr, wx, wy - len);
+        cairo_stroke(cr);
+        cairo_move_to(cr, wx, wy - len);
+        cairo_line_to(cr, wx - 4, wy - len + 6);
+        cairo_line_to(cr, wx + 4, wy - len + 6);
+        cairo_close_path(cr); cairo_fill(cr);
+
+        /* Center square (both axes — yellow) */
+        cairo_set_source_rgba(cr, 1, 1, 0.2, 0.4);
+        cairo_rectangle(cr, wx, wy - 8, 8, 8);
+        cairo_fill(cr);
+    } else if (g_gizmo == GIZMO_RESIZE) {
+        /* Resize gizmo: squares on edges and corners */
+        double x0w, y0w, x1w, y1w;
+        world_to_widget(v, mn_a, mn_b, &x0w, &y0w);
+        world_to_widget(v, mx_a, mx_b, &x1w, &y1w);
+        if (x0w > x1w) { double t=x0w; x0w=x1w; x1w=t; }
+        if (y0w > y1w) { double t=y0w; y0w=y1w; y1w=t; }
+        double hs = 4; /* handle half-size */
+        cairo_set_source_rgba(cr, 0.2, 0.6, 1, 0.9);
+        cairo_set_line_width(cr, 1.5);
+        /* Corner handles */
+        double cx[] = {x0w, x1w, x0w, x1w};
+        double cy[] = {y0w, y0w, y1w, y1w};
+        for (int i = 0; i < 4; i++) {
+            cairo_rectangle(cr, cx[i]-hs, cy[i]-hs, hs*2, hs*2);
+            cairo_fill(cr);
+        }
+        /* Edge midpoint handles */
+        double ex[] = {(x0w+x1w)/2, (x0w+x1w)/2, x0w, x1w};
+        double ey[] = {y0w, y1w, (y0w+y1w)/2, (y0w+y1w)/2};
+        cairo_set_source_rgba(cr, 0.2, 0.6, 1, 0.6);
+        for (int i = 0; i < 4; i++) {
+            cairo_rectangle(cr, ex[i]-hs, ey[i]-hs, hs*2, hs*2);
+            cairo_fill(cr);
+        }
+    } else if (g_gizmo == GIZMO_ROTATE) {
+        /* Rotate gizmo: circle around center */
+        double radius = 30;
+        cairo_set_source_rgba(cr, 1, 0.5, 0, 0.7);
+        cairo_set_line_width(cr, 2);
+        cairo_arc(cr, wx, wy, radius, 0, 2 * M_PI);
+        cairo_stroke(cr);
+        /* Tick mark at top */
+        cairo_set_source_rgba(cr, 1, 0.5, 0, 0.9);
+        cairo_move_to(cr, wx, wy - radius - 5);
+        cairo_line_to(cr, wx - 4, wy - radius + 2);
+        cairo_line_to(cr, wx + 4, wy - radius + 2);
+        cairo_close_path(cr); cairo_fill(cr);
+    }
 }
 
 /* ── 3D View Drawing ─────────────────────────────────────────── */
@@ -588,10 +677,10 @@ static void project_3d(ViewState* v, float wx, float wy, float wz,
     /* View direction */
     float dx = wx - cam_x, dy = wy - cam_y, dz = wz - cam_z;
 
-    /* Camera basis: forward, right, up */
+    /* Camera basis: forward, right, up (Z-up coordinate system) */
     float fx = -cp * cy, fy = -cp * sy2, fz = -sp;
-    float rx = sy2, ry = -cy, rz = 0;
-    float ux = sp * cy, uy = sp * sy2, uz = -cp;
+    float rx = -sy2, ry = cy, rz = 0;
+    float ux = -sp * cy, uy = -sp * sy2, uz = cp;
 
     float depth = dx*fx + dy*fy + dz*fz;
     if (depth < 1.0f) { *sx = -9999; *sy = -9999; return; }
@@ -868,8 +957,54 @@ static gboolean on_button_press_2d(GtkWidget* widget, GdkEventButton* ev, gpoint
             /* Check shift for move */
             int shift = (ev->state & GDK_SHIFT_MASK) != 0;
 
-            if (shift && (g_selected_brush >= 0 || g_selected_entity >= 0)) {
-                /* Start move */
+            if (shift && g_selected_brush >= 0) {
+                int bc2; Brush** bs2 = brush_get_all(&bc2);
+                Brush* sb = (g_selected_brush < bc2) ? bs2[g_selected_brush] : NULL;
+
+                if (g_gizmo == GIZMO_MOVE) {
+                    v->dragging = 3;
+                    v->drag_start_x = ev->x;
+                    v->drag_start_y = ev->y;
+                    widget_to_world(v, ev->x, ev->y, &v->drag_world_x, &v->drag_world_y);
+                    return TRUE;
+                }
+
+                if (g_gizmo == GIZMO_RESIZE && sb) {
+                    /* Determine which edge/corner to drag based on click position */
+                    double mn_a = brush_axis(sb->mins, ax_a);
+                    double mx_a = brush_axis(sb->maxs, ax_a);
+                    double mn_b = brush_axis(sb->mins, ax_b);
+                    double mx_b = brush_axis(sb->maxs, ax_b);
+                    double tol = (double)g_grid * 0.6;
+                    int edge = 0;
+                    if (fabs(wa - mn_a) < tol) edge |= 1;       /* near min_a */
+                    else if (fabs(wa - mx_a) < tol) edge |= 2;  /* near max_a */
+                    if (fabs(wb - mn_b) < tol) edge |= 4;       /* near min_b */
+                    else if (fabs(wb - mx_b) < tol) edge |= 8;  /* near max_b */
+                    if (edge == 0) edge = 2 | 8; /* default: drag max corner */
+
+                    v->resize_edge = edge;
+                    v->resize_orig_min_a = mn_a;
+                    v->resize_orig_max_a = mx_a;
+                    v->resize_orig_min_b = mn_b;
+                    v->resize_orig_max_b = mx_b;
+                    v->dragging = 4;
+                    v->drag_start_x = ev->x;
+                    v->drag_start_y = ev->y;
+                    widget_to_world(v, ev->x, ev->y, &v->drag_world_x, &v->drag_world_y);
+                    return TRUE;
+                }
+
+                /* GIZMO_ROTATE or fallback: just move */
+                v->dragging = 3;
+                v->drag_start_x = ev->x;
+                v->drag_start_y = ev->y;
+                widget_to_world(v, ev->x, ev->y, &v->drag_world_x, &v->drag_world_y);
+                return TRUE;
+            }
+
+            if (shift && g_selected_entity >= 0) {
+                /* Entity move (always move, regardless of gizmo) */
                 v->dragging = 3;
                 v->drag_start_x = ev->x;
                 v->drag_start_y = ev->y;
@@ -992,6 +1127,15 @@ static gboolean on_button_release_2d(GtkWidget* widget, GdkEventButton* ev, gpoi
         return TRUE;
     }
 
+    if (ev->button == 1 && v->dragging == 4) {
+        /* Finish resize */
+        v->dragging = 0;
+        g_dirty = 1;
+        update_status("Resized");
+        redraw_all();
+        return TRUE;
+    }
+
     return FALSE;
 }
 
@@ -1042,6 +1186,51 @@ static gboolean on_motion_2d(GtkWidget* widget, GdkEventMotion* ev, gpointer dat
 
         v->drag_world_x = wa;
         v->drag_world_y = wb;
+        redraw_all();
+        return TRUE;
+    }
+
+    if (v->dragging == 4 && g_selected_brush >= 0) {
+        /* Resize selected brush */
+        double wa, wb;
+        widget_to_world(v, ev->x, ev->y, &wa, &wb);
+        wa = snap_to_grid(wa);
+        wb = snap_to_grid(wb);
+
+        int ax_a, ax_b;
+        view_axes(v->type, &ax_a, &ax_b);
+
+        double new_min_a = v->resize_orig_min_a;
+        double new_max_a = v->resize_orig_max_a;
+        double new_min_b = v->resize_orig_min_b;
+        double new_max_b = v->resize_orig_max_b;
+
+        if (v->resize_edge & 1) new_min_a = wa;  /* dragging min_a */
+        if (v->resize_edge & 2) new_max_a = wa;  /* dragging max_a */
+        if (v->resize_edge & 4) new_min_b = wb;  /* dragging min_b */
+        if (v->resize_edge & 8) new_max_b = wb;  /* dragging max_b */
+
+        /* Enforce minimum size */
+        if (new_max_a - new_min_a < g_grid) {
+            if (v->resize_edge & 1) new_min_a = new_max_a - g_grid;
+            else new_max_a = new_min_a + g_grid;
+        }
+        if (new_max_b - new_min_b < g_grid) {
+            if (v->resize_edge & 4) new_min_b = new_max_b - g_grid;
+            else new_max_b = new_min_b + g_grid;
+        }
+
+        int bc; Brush** bs = brush_get_all(&bc);
+        if (g_selected_brush < bc && bs[g_selected_brush]) {
+            Brush* b = bs[g_selected_brush];
+            Vec3 new_mins = b->mins, new_maxs = b->maxs;
+            float* nmn = (float*)&new_mins;
+            float* nmx = (float*)&new_maxs;
+            nmn[ax_a] = (float)new_min_a; nmx[ax_a] = (float)new_max_a;
+            nmn[ax_b] = (float)new_min_b; nmx[ax_b] = (float)new_max_b;
+            resize_brush(g_selected_brush, new_mins, new_maxs);
+        }
+
         redraw_all();
         return TRUE;
     }
@@ -1143,9 +1332,10 @@ static gboolean on_key_press(GtkWidget* widget, GdkEventKey* ev, gpointer data) 
           update_status(msg); }
         break;
     case GDK_KEY_g:
-        g_grid_idx = (g_grid_idx + 1) % GRID_SIZES_COUNT;
-        g_grid = GRID_SIZES[g_grid_idx];
-        { char msg[64]; snprintf(msg, sizeof(msg), "Grid: %d", g_grid); update_status(msg); }
+        g_gizmo = (g_gizmo + 1) % GIZMO_COUNT;
+        { const char* names[] = {"Move", "Resize", "Rotate"};
+          char msg[64]; snprintf(msg, sizeof(msg), "Gizmo: %s", names[g_gizmo]);
+          update_status(msg); }
         redraw_all();
         break;
     case GDK_KEY_x:
@@ -1409,15 +1599,15 @@ int main(int argc, char** argv) {
     GtkWidget* hpaned_top = gtk_paned_new(GTK_ORIENTATION_HORIZONTAL);
     GtkWidget* hpaned_bot = gtk_paned_new(GTK_ORIENTATION_HORIZONTAL);
 
-    /* Top-left: Top view (XY) */
-    GtkWidget* frame0 = gtk_frame_new(NULL);
-    gtk_container_add(GTK_CONTAINER(frame0), create_2d_view(&g_views[0]));
-    gtk_paned_pack1(GTK_PANED(hpaned_top), frame0, TRUE, TRUE);
-
-    /* Top-right: 3D view */
+    /* Top-left: 3D view */
     GtkWidget* frame3 = gtk_frame_new(NULL);
     gtk_container_add(GTK_CONTAINER(frame3), create_3d_view(&g_views[3]));
-    gtk_paned_pack2(GTK_PANED(hpaned_top), frame3, TRUE, TRUE);
+    gtk_paned_pack1(GTK_PANED(hpaned_top), frame3, TRUE, TRUE);
+
+    /* Top-right: Top view (XY) */
+    GtkWidget* frame0 = gtk_frame_new(NULL);
+    gtk_container_add(GTK_CONTAINER(frame0), create_2d_view(&g_views[0]));
+    gtk_paned_pack2(GTK_PANED(hpaned_top), frame0, TRUE, TRUE);
 
     /* Bottom-left: Front view (XZ) */
     GtkWidget* frame1 = gtk_frame_new(NULL);
@@ -1436,7 +1626,7 @@ int main(int argc, char** argv) {
 
     /* ── Status bar ──────────────────────────────────────────── */
     g_statusbar = gtk_statusbar_new();
-    gtk_statusbar_push(GTK_STATUSBAR(g_statusbar), 0, "Ready — S=Select B=Brush E=Entity G=Grid T=Texture");
+    gtk_statusbar_push(GTK_STATUSBAR(g_statusbar), 0, "Ready — S=Select B=Brush E=Entity G=Gizmo T=Texture");
     gtk_box_pack_start(GTK_BOX(vbox), g_statusbar, FALSE, FALSE, 0);
 
     /* Show and run */

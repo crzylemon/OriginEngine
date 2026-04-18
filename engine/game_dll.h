@@ -9,7 +9,7 @@
 #include "game_interface.h"
 
 /* Load a game .so and get its API. Returns 1 on success. */
-int         game_dll_load(const char* path);
+int         game_dll_load(const char* path, const char* game_folder);
 
 /* Get the loaded game's API */
 GameAPI*    game_dll_get_api(void);
