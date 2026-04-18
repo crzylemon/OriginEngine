@@ -90,8 +90,9 @@ jobs:
             engine/entity_io.c engine/font.c engine/dev_console.c \
             engine/sound.c engine/mesh.c engine/prop.c engine/physics.c \
             -o origin_engine.exe \
-            -Wall -Wextra -lm -lvulkan-1 -lglfw3 -lode -lgdi32 -lwinmm \
-            -DGLFW_DLL
+            -Wall -Wextra -lm \
+            $(pkg-config --cflags --libs vulkan glfw3 ode) \
+            -lgdi32 -lwinmm -lole32 -D_WIN32
 
       - name: Build editor
         run: |
@@ -105,6 +106,7 @@ jobs:
 
       - name: Build demo game
         run: |
+          mkdir -p game/bin
           gcc -shared game/game.c -o game/bin/client.dll -Wall -Wextra -lm
 
       - name: Collect DLLs

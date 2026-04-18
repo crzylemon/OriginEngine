@@ -118,6 +118,10 @@ typedef struct {
  */
 typedef GameAPI* (*GetGameAPIFunc)(void);
 
-#define GAME_API_EXPORT __attribute__((visibility("default")))
+#ifdef _WIN32
+  #define GAME_API_EXPORT __declspec(dllexport)
+#else
+  #define GAME_API_EXPORT __attribute__((visibility("default")))
+#endif
 
 #endif /* GAME_INTERFACE_H */

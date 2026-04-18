@@ -9,7 +9,13 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h>
+#ifdef _WIN32
+  #include <io.h>
+  #define access _access
+  #define F_OK 0
+#else
+  #include <unistd.h>
+#endif
 #include "engine/engine.h"
 #include "engine/font.h"
 
